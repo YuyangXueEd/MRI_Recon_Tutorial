@@ -7,6 +7,6 @@ Some basic tutorials on MRI reconstruction data or models.
 - Datasets: datasets and preprocessing
   - The fastMRI dataset processing tutorial is borrowed from [fastMRI](https://github.com/facebookresearch/fastMRI). Thanks for making such a good dataset publicly available :)
 - Models: baselines and SOTA models
-  - [U-Net]: fastMRI baseline model. [paper](https://arxiv.org/abs/1811.08839)
+  - [U-Net]: fastMRI baseline model. [[paper]](https://arxiv.org/abs/1811.08839)
   - 
 
