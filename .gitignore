@@ -225,3 +225,7 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+
+Models/unet/knee_sc_leaderboard_state_dict.pt
+
+*.h5
