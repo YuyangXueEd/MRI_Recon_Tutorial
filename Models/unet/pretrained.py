@@ -16,9 +16,10 @@ from unet import Unet
 UNET_FOLDER = "https://dl.fbaipublicfiles.com/fastMRI/trained_models/unet/"
 MODEL_FNAMES = {
     "unet_knee_sc": "knee_sc_leaderboard_state_dict.pt",
-    #"unet_knee_mc": "knee_mc_leaderboard_state_dict.pt",
-    #"unet_brain_mc": "brain_leaderboard_state_dict.pt",
+    # "unet_knee_mc": "knee_mc_leaderboard_state_dict.pt",
+    # "unet_brain_mc": "brain_leaderboard_state_dict.pt",
 }
+
 
 def download_model(url, fname):
     response = requests.get(url, timeout=10, stream=True)
@@ -34,14 +35,11 @@ def download_model(url, fname):
     )
 
     with open(fname, "wb") as fh:
-        for chunk in response.iter_content((chunk_size)):
+        for chunk in response.iter_content(chunk_size):
             progress_bar.update(len(chunk))
             fh.write(chunk)
 
     progress_bar.close()
-
-
-
 
 
 def run_unet_model(batch, model, device):
@@ -53,6 +51,7 @@ def run_unet_model(batch, model, device):
     output = (output * std + mean).cpu()
 
     return output, int(slice_num[0]), fname[0]
+
 
 def run_inference(challenge, state_dict_file, data_path, output_path, device):
     """
@@ -77,7 +76,7 @@ def run_inference(challenge, state_dict_file, data_path, output_path, device):
     model = model.eval()
 
     # dataloader setup
-    
+
     if "_sc" in challenge:
         dataset = SliceDataset(
             root=data_path,
@@ -106,18 +105,17 @@ def run_inference(challenge, state_dict_file, data_path, output_path, device):
     for fname in outputs:
         outputs[fname] = np.stack([out for _, out in sorted(outputs[fname])])
 
-    fastmri.save_reconstructions(outputs, output_path / "reconstructions")
+    
+    #fastmri.save_reconstructions(outputs, output_path / "reconstructions")
 
     end_time = time.perf_counter()
 
     print(f"Elapsed time for {len(dataloader)} slices: {end_time - start_time}")
-    
-
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        formatter_class = argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
     parser.add_argument("--challenge",
