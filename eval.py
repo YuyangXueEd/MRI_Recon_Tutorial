@@ -147,7 +147,7 @@ def eval_model(args, model, data_loader):
                                           ))
 
     recons = {
-        fname: np.stack([pred for _, pred in sorted(slice_preds)]) for name, slice_preds in recons.items(),
+        fname: np.stack([pred for _, pred in sorted(slice_preds)]) for name, slice_preds in recons.items()
 
     }
 
