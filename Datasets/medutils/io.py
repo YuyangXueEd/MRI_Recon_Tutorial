@@ -14,13 +14,17 @@ def loadmat(filename, variable_names=None):
 
     matfile = h5py.File(filename, 'r')
 
-    if variable_names == None:
+    if variable_names is None:
         for key in matfile.keys():
-            data.update({key:matfile[key][()]})
+            data.update({key: matfile[key][()]})
     else:
         for key in variable_names:
             if not key in matfile.keys():
                 raise RuntimeError('Variable: "' + key + '" is not in file: ' + filename)
-            data.update({key:matfile[key][()]})
+            data.update({key: matfile[key][()]})
 
     return data
+
+if __name__ == '__main__':
+    a = loadmat('file1000082_v2.h5')
+    print(a)
