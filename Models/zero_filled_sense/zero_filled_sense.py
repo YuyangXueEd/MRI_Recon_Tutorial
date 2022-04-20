@@ -2,7 +2,7 @@ import logging
 import resource
 import sys
 
-sys.path.append('../')
+sys.path.append('../../')
 
 from collections import defaultdict
 
