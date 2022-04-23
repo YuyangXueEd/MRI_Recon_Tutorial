@@ -15,40 +15,18 @@ from torch.utils.tensorboard.writer import SummaryWriter
 sys.path.append('../../')
 from Datasets.FastMRI.args import TrainArgs
 import Datasets.FastMRI.multicoil as data_mc
-from Datasets.medutils_torch import loss
-from utils.template import build_optim, define_losses, postprocess, save_image_writer, save_model,
+from Datasets.medutils_torch.loss import build_metrics
+from Datasets.medutils_torch.templates import State, build_optim, define_losses, postprocess, save_image_writer, \
+    save_model
 from modules.datalayer import DataIDLayer, DataGDLayer, DataProxCGLayer, DataVSLayer
+from collections.didn import DIDN
 from collections.unet_baseline import UnetModel
 from collections.sn import SensitivityNetwork
 from collections.pcn import ParallelCoilNetwork
 
-
 # logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-def build_loss(args):
-    losses = define_losses()
-    l1 = losses['l1']
-    ssim = losses['ssim']
-
-    def criterion(output, target, sample, **kwargs):
-        # if there is no key 'scale', return 1.
-        scale = kwargs.pop('scale', 1.)
-        loss_l1 = l1(output, target, sample)
-        loss_ssim = ssim(output, target, sample)
-
-        # according to the paper
-        # The parameter \gamma_{l_1}= 1e−5 is chosen empirically
-        # to match the scale of the two losses and is motivated by
-        # the fastMRI challenge requirements.
-        loss = loss_ssim + loss_l1 * 1e-3
-        loss /= scale
-
-        return loss, loss_l1, loss_ssim
-
-    return criterion
 
 
 def create_batch_datasets(args, **kwargs):
@@ -108,7 +86,7 @@ def create_batch_datasets(args, **kwargs):
         csv_train,
         args.data_path,
         transform=transforms.Compose(train_transforms),
-        batch_size = args.batch_size,
+        batch_size=args.batch_size,
         slices=train_slices,
         data_filter=data_filter,
         norm=args.norm,
@@ -167,7 +145,7 @@ def create_data_loaders(args, **kwargs):
     return train_loader, val_loader, display_loader
 
 
-def train_epoch(state, model, data_loader, optimizer, writer):
+def train(state, model, data_loader, optimizer, writer):
     # set to train mode
     model.train()
 
@@ -209,7 +187,7 @@ def train_epoch(state, model, data_loader, optimizer, writer):
             output=output,
             target=target,
             sample=sample,
-            scale= 1. / args.grad_acc
+            scale=1. / args.grad_acc
         )
 
         # calculate loss; forward time
@@ -237,7 +215,7 @@ def train_epoch(state, model, data_loader, optimizer, writer):
                 f'Iter = [{iter:4d}/{len(data_loader):4d}]\t'
                 f'Loss = {loss.item():.4g}\t Avg Loss = {avg_loss:.4g}\t'
                 f't = (total{perf_avg / (iter + 1):.1g}s\t'
-                f'fwd: {t1-t0:.1g}s\t bwd: {t2-t1:.1g}s\t'
+                f'fwd: {t1 - t0:.1g}s\t bwd: {t2 - t1:.1g}s\t'
             )
 
         if state.gloabal_step % 1000 == 0:
@@ -308,8 +286,274 @@ def evaluate(state, model, data_loader, metrics, writer):
 
     return losses, time.perf_counter() - start
 
+
 def visualize(state, model, data_loader, writer):
-    
+    save_image = functools.partial(save_image_writer, writer, state.epoch)
+    args = state.args
+    keys = ['input', 'target', 'kspace', 'smaps', 'mask', 'fg_mask']
+    attr_keys = ['mean', 'cov', 'ref_max']
+    # eval mode
+    model.eval()
+
+    with torch.no_grad():
+        for iter, sample in enumerate(data_loader):
+            sample = data_mc._read_data(sample, keys, attr_keys, args.device)
+            output = model(
+                sample['input'],
+                sample['kspace'],
+                sample['smaps'],
+                sample['mask'],
+                sample['attrs']
+            )
+
+            rec_x = sample['attrs']['metadata']['rec_x']
+            rec_y = sample['attrs']['metadata']['rec_y']
+
+            output = postprocess(output, (rec_x, rec_y))
+            input = postprocess(sample['input'], (rec_x, rec_y))
+            target = postprocess(sample['target'], (rec_x, rec_y))
+            fg_mask = postprocess(sample['fg_mask'], (rec_x, rec_y))
+
+            base_err = torch.abs(target - input)
+            pred_err = torch.abs(target - output)
+            residual = torch.abs(input - output)
+            save_image(
+                torch.cat([input, output, target], -1).unsqueeze(0),
+                'und_pred_gt',
+            )
+            save_image(
+                torch.cat([base_err, pred_err, residual], -1).unsqueeze(0),
+                'Err_base_pred',
+                base_err.max(),
+            )
+            save_image(fg_mask, 'Mask', 1.)
+
+            break
 
 
+def build_model(args):
+    # regularisation term
+    reg_config = {
+        'in_chans': 2,
+        'out_chans': 2,
+        'pad_data': True
+    }
 
+    if args.regularization_term == 'unet':
+        reg_model = UnetModel
+        reg_config.update({
+            'chans': args.num_chans,
+            'drop_prob': 0.,
+            'normalize': False,
+            'num_pool_layers': args.num_pools
+        })
+    else:
+        reg_model = DIDN
+        reg_config.update({
+            'chans': args.num_chans,
+            'n_res_blocks': args.n_res_blocks,
+            'global_residual': False
+        })
+
+    # data term
+    data_config = {
+        'learnable': args.learn_data_term
+    }
+    if args.data_term == 'GD':
+        data_layer = DataGDLayer
+        data_config.update({'lambda_init': args.lambda_init})
+    elif args.data_term == 'PROX':
+        data_layer = DataProxCGLayer
+        data_config.update({'lambda_init': args.lambda_init})
+    elif args.data_term == 'VS':
+        data_layer = DataVSLayer
+        data_config.update({
+            'alpha_init': args.alpha_init,
+            'beta_init': args.beta_init,
+        })
+    else:
+        data_layer = DataIDLayer
+
+    if args.pcn:
+        reg_config['in_chans'] = 30
+        reg_config['out_chans'] = 30
+        model = ParallelCoilNetwork(
+            args.num_iter,
+            reg_model,
+            reg_config,
+            {
+                'lambda_init': args.lambda_init,
+                'learnable': args.learn_data_term
+            },
+            save_space=True,
+            shared_params=args.shared_params
+        ).to(args.device)
+    else:
+        model = SensitivityNetwork(
+            args.num_iter,
+            reg_model,
+            reg_config,
+            data_layer,
+            data_config,
+            save_space=True,
+            shared_params=args.shared_params,
+        ).to(args.device)
+    return model
+
+
+def build_loss(args):
+    losses = define_losses()
+    l1 = losses['l1']
+    ssim = losses['ssim']
+
+    def criterion(output, target, sample, **kwargs):
+        # if there is no key 'scale', return 1.
+        scale = kwargs.pop('scale', 1.)
+        loss_l1 = l1(output, target, sample)
+        loss_ssim = ssim(output, target, sample)
+
+        # according to the paper
+        # The parameter \gamma_{l_1}= 1e−5 is chosen empirically
+        # to match the scale of the two losses and is motivated by
+        # the fastMRI challenge requirements.
+        loss = loss_ssim + loss_l1 * 1e-3
+        loss /= scale
+
+        return loss, loss_l1, loss_ssim
+
+    return criterion
+
+
+def load_model(checkpoint_file):
+    checkpoint = torch.load(checkpoint_file)
+    args = checkpoint['args']
+    model = build_model(args)
+    if args.data_parallel:
+        model = torch.nn.DataParallel(model)
+    model.load_state_dict(checkpoint['model'], strict=False)
+
+    optimizer = build_optim(args, model.parameters())
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    return checkpoint, model, optimizer
+
+
+def main(args):
+    logging.infor(args)
+    # general
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(log_dir=args.outdir / 'summary')
+
+    train_loader, val_loader, display_loader = create_data_loaders(
+        args,
+        csv_train=f'{args.csv_path}/multicoil_train.csv',
+        csv_val=f'{args.csv_path}/multicoil_val.csv',
+        data_filter={'type': args.acquisition}
+    )
+
+    # models
+    best_val_loss = 1e9
+    start_epoch = 0
+    if args.checkpoint:
+        logging.info('loading pretrained model ...')
+        checkpoint, model, optimizer = load_model(args.checkpoint)
+        if args.resume:
+            best_val_loss = checkpoint['best_dev_loss']
+            start_epoch = checkpoint['epoch'] + 1
+        else:
+            optimizer = build_optim(args, model.parameters())
+
+        del checkpoint
+    else:
+        model = build_model(args)
+        if args.data_parallel:
+            model = torch.nn.DataParallel(model)
+        optimizer = build_optim(args, model.parameters())
+        if args.stage_train:
+            model.stage_training_init()
+
+    optimizer.zero_grad()
+
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer,
+        args.lr_step_size,
+        args.lr_gamma
+    )
+
+    # build metric functions
+    metrics = build_metrics(args)
+
+    state = State(
+        epoch=0,
+        global_step=0,
+        grad_acc=args.grad_acc,
+        args=args,
+        loss_fn=build_loss(args)
+    )
+
+    logging.info(args)
+    logging.info(model)
+    logging.info(optimizer)
+    logging.info(scheduler)
+
+    # main loop
+    for epoch in range(start_epoch, args.nepochs):
+        state.epoch = epoch
+        scheduler.step(state.epoch)
+
+        train_loss, train_time = train(
+            state,
+            model,
+            train_loader,
+            optimizer,
+            writer
+        )
+
+        losses, val_time = evaluate(
+            state,
+            model,
+            val_loader,
+            metrics,
+            writer
+        )
+
+        visualize(state, model, display_loader, writer)
+        save_key = args.save_key
+        val_loss = np.mean(losses[save_key])
+
+        if save_key in ['SSIM', 'PSNR']:
+            is_new_best = val_loss > best_val_loss
+            best_val_loss = max(val_loss, best_val_loss)
+        else:
+            is_new_best = val_loss < best_val_loss
+            best_val_loss = min(val_loss, best_val_loss)
+
+        save_model(args, args.outdir, epoch, model, optimizer,
+                   optimizer, best_val_loss, is_new_best)
+
+        logging.info(
+            f'Epoch = [{epoch:3d}/{args.num_epochs:3d}] '
+            f'TrainLoss = {train_loss:.4g} ValLoss = {val_loss:.4g} \n  '
+            f'MSE = {np.mean(losses["MSE"]):.4g}+/-'
+            f'{np.std(losses["MSE"]):.4g}\n  '
+            f'NMSE = {np.mean(losses["NMSE"]):.4g}+/-'
+            f'{np.std(losses["NMSE"]):.4g}\n  '
+            f'PSNR = {np.mean(losses["PSNR"]):.4g}+/-'
+            f'{np.std(losses["PSNR"]):.4g}\n  '
+            f'SSIM = {np.mean(losses["SSIM"]):.4g}+/'
+            f'-{np.std(losses["SSIM"]):.4g}\n  '
+            ' \n  '
+            f'TrainTime = {train_time:.4f}s DevTime = {val_time:.4f}s'
+        )
+
+        if args.stage_train:
+            model.stage_training_transition_i(copy=False)
+
+    writer.close()
+
+
+if __name__ == '__main__':
+    args = TrainArgs().parse_args()
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    main(args)

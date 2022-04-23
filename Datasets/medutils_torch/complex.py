@@ -2,9 +2,77 @@ import numpy as np
 import torch
 from torch import nn
 
+
 def complex_abs(data, dim=-1, keepdim=False, eps=0):
     assert data.size(dim == 2)
     return (data ** 2 + eps).sum(dim=dim, keepdim=keepdim).sqrt()
+
+
+def complex_mult(data1, data2, dim=-1):
+    """
+    Element-wise complex matrix multiplication X^T Y
+
+    :param data1 -> torch.Tensor:
+    :param data2 -> torch.Tensor:
+    :param dim -> int: dimension that represents the complex values
+    """
+
+    assert data1.size(dim) == 2
+    assert data2.size(dim) == 2
+    re1, im1 = torch.unbind(data1, dim=dim)
+    re2, im2 = torch.unbind(data2, dim=dim)
+
+    return torch.stack([re1 * re2 - im1 * im2, im1 *re2 + re1 * im2], dim=dim)
+
+
+def complex_mult_conj(data1, data2, dim=-1):
+    """
+    Element-wise complex matrix multiplication with conjugation x^H Y
+
+    :param data1 -> torch.Tensor:
+    :param data2 -> torch.Tensor:
+    :param dim -> int: dimension that represents the complex values
+    """
+    assert data1.size(dim) == 2
+    assert data2.size(dim) == 2
+    re1, im1 = torch.unbind(data1, dim=dim)
+    re2, im2 = torch.unbind(data2, dim=dim)
+
+    return torch.stack([re1 * re2 - im1 * im2, im1 * re2 - re1 * im2], dim=dim)
+
+
+def complex_div(data1, data2, dim=-1):
+    """
+    Element-wise division x^H Y
+
+    :param data1 -> torch.Tensor:
+    :param data2 -> torch.Tensor:
+    :param dim -> int: dimension that represents the complex values
+    """
+    assert data1.size(dim) == 2
+    assert data2.size(dim) == 2
+    re1, im1 = torch.unbind(data1, dim=dim)
+    re2, im2 = torch.unbind(data2, dim=dim)
+
+    return  torch.stack([re1 * re2 + im1 * im2, im1 * re2 - re1 * im2], dim=dim) / complex_abs(data2, keepdim=True) ** 2
+
+
+def complex_dotp(data1, data2):
+    """
+        Complex dot product
+
+        :param data1 -> torch.Tensor:
+        :param data2 -> torch.Tensor:
+        :param dim -> int: dimension that represents the complex values
+        """
+
+    assert data1.size(-1) == 2
+    assert data2.size(-1) == 2
+
+    mult = complex_mult_conj(data1, data2)
+    re, im = torch.unbind(mult, dim=-1)
+    return torch.stack([torch.sum(re), torch.sum(im)])
+
 
 def complex_pseudocovariance(data):
     """
@@ -87,7 +155,8 @@ def normalise(x, mean, conv_xx_half, cov_xy_half, cov_yx_half, cov_yy_half):
     re = np.real(x_m)
     im = np.imag(x_m)
 
-    cov_xx_half_inv, cov_xy_half_inv, cov_yx_half_inv, cov_yy_half_inv = matrix_invert(conv_xx_half, cov_xy_half, cov_yx_half, cov_yy_half)
+    cov_xx_half_inv, cov_xy_half_inv, cov_yx_half_inv, cov_yy_half_inv = matrix_invert(conv_xx_half, cov_xy_half,
+                                                                                       cov_yx_half, cov_yy_half)
     x_norm_re = cov_xx_half_inv * re + cov_xy_half_inv * im
     x_norm_im = cov_yx_half_inv * re + cov_xy_half_inv * im
     img = x_norm_re + 1j * x_norm_im

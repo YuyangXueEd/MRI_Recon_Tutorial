@@ -208,6 +208,129 @@ class TrainArgs(Args):
             help='Using a foreground mask for loss evaluation.'
         )
 
+        # general training settings
+        self.add_argument(
+            '--resume',
+            action='store_true',
+            help='If set, resume the training from a previous model checkpoint. '
+                 '"--checkpoint" should be set with this'
+        )
+        self.add_argument(
+            '--checkpoint',
+            type=str,
+            help='Path to an existing checkpoint. Used along with "--resume"',
+        )
+        self.add_argument(
+            '--full-slices',
+            action='store_true',
+            help='If set, train on all slices in one epoch rather than'
+                 ' sampling one slice per volume',
+        )
+        self.add_argument(
+            '--grad-acc',
+            type=int,
+            default=1,
+            help='Gradient accumulation',
+        )
+        self.add_argument(
+            '--save-key',
+            choices=['val_loss', 'SSIM', 'PSNR'],
+            default='val_loss',
+            help='Save model based on best validation performance on the chosen'
+                 'metric',
+        )
+
+        # model hyper-parameters
+        self.add_argument(
+            '--num-pools',
+            type=int,
+            default=3,
+            help='Number of U-Net pooling layers',
+        )
+        self.add_argument(
+            '--n-res-blocks',
+            type=int,
+            default=2,
+            help='Number of DownUps in DownUpBlock for DownUpNet',
+        )
+        self.add_argument(
+            '--num-chans',
+            type=int,
+            default=128,
+            help='Number of initial channels',
+        )
+        self.add_argument(
+            '--num-iter',
+            type=int,
+            default=1,
+            help='Number of iterations for the iterative reconstruction networks',
+        )
+        self.add_argument(
+            '--regularization-term',
+            choices=['unet', 'dunet'],
+            default='dunet',
+            help=(
+                'Regularization term for the iterative networks. '
+                'unet, dunet (down-up network)'
+            )
+        )
+        self.add_argument(
+            '--data-term',
+            choices=['GD', 'PROX', 'VS', 'NONE'],
+            default='GD',
+            help=(
+                'Data term for the iterative networks. '
+                'GD: gradient descent '
+                '(Hammernik et al., Variational Network, MRM2018), '
+                'PROX: conjugate gradient descent '
+                '(Aggarwal et al., MoDL, TMI2018), '
+                'VS: variable-splitting (Duan et al., VSNet, MICCAI2019), '
+                'NONE: no data term between each iteration.')
+        )
+
+        self.add_argument(
+            '--lambda-init',
+            type=float,
+            default=0.1,
+            help='Init of data term weight lambda.'
+                 'Use with "--data-term [GD|PROX]"'
+        )
+        self.add_argument(
+            '--alpha-init',
+            type=float,
+            default=0.1,
+            help='Init of data term weight lambda.'
+                 'Use with "--data-term VS"'
+        )
+        self.add_argument(
+            '--beta-init',
+            type=float,
+            default=0.1,
+            help='Init of data term weight lambda.'
+                 'Use with "--data-term VS"'
+        )
+        self.add_argument(
+            '--learn-data-term',
+            action='store_true',
+            help='If set, the parameters for the data term will be learnt',
+        )
+        self.add_argument(
+            '--pcn',
+            action='store_true',
+            help='If set, use Parallel Coil Network which uses 30ch input output'
+                 '(note: ignores data-term args and use closed form DC)',
+        )
+        self.add_argument(
+            '--stage-train',
+            action='store_true',
+            help='If set, train each cascade gradually',
+        )
+        self.add_argument(
+            '--shared-params',
+            action='store_true',
+            help='If set, share the params along iterations',
+        )
+
         self.set_defaults(**overrides)
 
 class TestArgs(Args):
