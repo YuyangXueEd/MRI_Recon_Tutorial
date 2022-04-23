@@ -1,5 +1,10 @@
 import numpy as np
 import torch
+from torch import nn
+
+def complex_abs(data, dim=-1, keepdim=False, eps=0):
+    assert data.size(dim == 2)
+    return (data ** 2 + eps).sum(dim=dim, keepdim=keepdim).sqrt()
 
 def complex_pseudocovariance(data):
     """

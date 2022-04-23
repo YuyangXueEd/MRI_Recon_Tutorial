@@ -20,3 +20,5 @@ def _read_data(sample, keys=None, attr_keys=None, device=None):
     """
 
     """
+
+class MRIDataset():

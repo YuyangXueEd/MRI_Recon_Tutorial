@@ -1,20 +1,25 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import torch
 
 plt.close('all')
 
 DICOM_OFFSET = 0
 
 
-def rss(img, coil_axis=-1):
+def rss(img, coil_axis=-1, dim=0, keepdim=False, eps=0):
     """
     Compute root-sum-of-squares reconstruction
-    :param img: input image (np.array)
+    :param img: input image (np.array or torch.Tensor)
     :param coil_axis: coil dimension
     :return: root-sum-of-squares reconstruction
     """
-
-    return np.sqrt(np.sum(np.abs(img) ** 2, coil_axis))
+    if isinstance(img, np.ndarray):
+        return np.sqrt(np.sum(np.abs(img) ** 2, coil_axis))
+    elif isinstance(img, torch.Tensor):
+        return torch.sqrt((img ** 2).sum(dim=dim, keepdim=keepdim) + eps)
+    else:
+        raise TypeError('Should input `np.ndarray` or `torch.Tensor`.')
 
 
 def fft2(img, axes=(-2, -1)):
