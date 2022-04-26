@@ -39,7 +39,7 @@ class DCLayer(nn.Module):
         super(DCLayer, self).__init__()
         self.lambda_ = torch.nn.Parameter(torch.Tensor(1))
         self.lambda_.data = torch.tensor(lambda_init, dtype=self.lambda_.dtype)
-        self.requires_grad = learnable
+        self.lambda_.requires_grad = learnable
         self.set_learnable(learnable)
 
     def forward(self, x, y, mask):
@@ -76,7 +76,9 @@ class DataGDLayer(nn.Module):
         self.set_learnable(learnable)
 
     def forward(self, x, y, smaps, mask):
+        # use ifft2 to get zero filled image, and its residual
         A_x_y = forwardSoftSenseOpNoShift(x, smaps, mask) - y
+        # use fft2 to get res-kspace
         gradD_x = adjointSoftSenseOpNoShift(A_x_y, smaps, mask)
         return x - self.data_weight * gradD_x
 
@@ -106,9 +108,9 @@ class DataProxCGLayer(nn.Module):
 
         self.op = MyCG
 
-    def forward(self, x, f, samps, mask):
+    def forward(self, x, y, samps, mask):
         return self.op.apply(
-            x, self.lambda_a, f, samps, mask,
+            x, self.lambda_a, y, samps, mask,
             self.tol, self.itera
         )
 
@@ -121,6 +123,9 @@ class DataProxCGLayer(nn.Module):
 
 
 class MyCG(torch.autograd.Function):
+    """
+    performs CG algorithm
+    """
     @staticmethod
     def complexDot(data1, data2):
         nBatch = data1.shape[0]
@@ -132,6 +137,7 @@ class MyCG(torch.autograd.Function):
     @staticmethod
     def solve(x0, M, tol, max_iter):
         nBatch = x0.shape[0]
+        # x0 shape tensor
         x = torch.zeros(x0.shape).to(x0.device)
         r = x0.clone()
         p = x0.clone()

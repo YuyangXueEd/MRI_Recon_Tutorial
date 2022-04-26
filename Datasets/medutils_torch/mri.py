@@ -2,6 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
+from complex import complex_mult_conj, complex_mult
+from fft import fft2, ifft2
+
 plt.close('all')
 
 DICOM_OFFSET = 0
@@ -20,6 +23,33 @@ def rss(img, coil_axis=-1, dim=0, keepdim=False, eps=0):
         return torch.sqrt((img ** 2).sum(dim=dim, keepdim=keepdim) + eps)
     else:
         raise TypeError('Should input `np.ndarray` or `torch.Tensor`.')
+
+
+def adjointSoftSenseOpNoShift(th_kspace, th_smaps, th_mask):
+    """
+    Compute Cartesian MRI adjoint operation (2D) without (i)fftshifts
+    :param kspace: input kspace (pre-shifted) (torch.tensor)
+    :param smaps: precomputed sensitivity maps (torch.tensor)
+    :param mask: undersampling mask (pre-shifted)
+
+    :return: reconstructed image (np.array)
+    """
+    th_img = torch.sum(complex_mult_conj(ifft2(th_kspace * th_mask), th_smaps), dim=(-5))
+    return th_img
+
+
+def forwardSoftSenseOpNoShift(th_img, th_smaps, th_mask):
+    """
+    Compute Cartesian MRI forward operation (2D) without (i)fftshifts
+    :param img: input image (torch.tensor)
+    :param smaps: precomputed sensitivity maps (torch.tensor)
+    :param mask: undersampling mask (pre-shifted)
+    :return: kspace (torch.tensor)
+    """
+    th_img_pad = th_img.unsqueeze(-5)
+    th_kspace = fft2(complex_mult(th_img_pad.expand_as(th_smaps), th_smaps)) * th_mask
+    th_kspace = torch.sum(th_kspace, dim=-4, keepdim=True)
+    return th_kspace
 
 
 def mriAdjointOp(kspace, smaps, mask, fft_axes=(-2, -1), coil_axis=-3):
